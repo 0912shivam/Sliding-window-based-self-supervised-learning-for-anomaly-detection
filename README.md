@@ -19,13 +19,11 @@ You can run "bash run_chest.sh" to obtain the performance reported in the paper.
 
 Please cite our paper if you use our code or reference our work (published version citation forthcoming):
 ```bib
-@ARTICLE{10247020,
+@article{dong2023swssl,
+  title={SWSSL: Sliding window-based self-supervised learning for anomaly detection in high-resolution images},
   author={Dong, Haoyu and Zhang, Yifan and Gu, Hanxue and Konz, Nicholas and Zhang, Yixin and Mazurowski, Maciej A},
-  journal={IEEE Transactions on Medical Imaging}, 
-  title={SWSSL: Sliding window-based self-supervised learning for anomaly detection in high-resolution images}, 
+  journal={IEEE Transactions on Medical Imaging},
   year={2023},
-  volume={},
-  number={},
-  pages={1-1},
-  doi={10.1109/TMI.2023.3314318}}
+  publisher={IEEE}
+}
 ```
