@@ -25,16 +25,17 @@ from models import Patch_Model
 
 def twin_loss(f_patch1, f_patch2, f_neg=None, p=False, target=None, f_full1=None, f_full2=None, f_neg_full=None):
     batch_size, dimension = f_patch1.shape
+    device = f_patch1.device
 
     f_patch1_norm = (f_patch1 - f_patch1.mean(0)) / f_patch1.std(0)
     f_patch2_norm = (f_patch2 - f_patch2.mean(0)) / f_patch2.std(0)
 
     pos_score = torch.mm(f_patch1_norm.t(), f_patch2_norm) / batch_size
-    diff = (pos_score - torch.eye(dimension).cuda()).pow(2)
+    diff = (pos_score - torch.eye(dimension).to(device)).pow(2)
     loss = diff.diag().sum()
 
     non_diag_weight = (torch.ones([dimension, dimension]) - torch.eye(dimension)) * 1e-6
-    non_diag_weight = non_diag_weight.cuda()
+    non_diag_weight = non_diag_weight.to(device)
 
     diff *= non_diag_weight
     loss += diff.sum()
@@ -46,7 +47,7 @@ def twin_loss(f_patch1, f_patch2, f_neg=None, p=False, target=None, f_full1=None
 
         pair_score = torch.mm(f_patch1_norm, f_patch2_norm.t())
         pair_sim = torch.sigmoid(pair_score.diag())
-        pair_loss = torch.abs(pair_sim - torch.ones(pair_score.shape[0]).cuda()).sum()
+        pair_loss = torch.abs(pair_sim - torch.ones(pair_score.shape[0]).to(device)).sum()
     
         neg_score = torch.mm(f_patch1_norm, f_neg_norm.t())
         neg_sim = torch.sigmoid(neg_score.diag())
@@ -71,11 +72,11 @@ def train(model, device, args):
     # Dataloader
     if args.category == 'chest':
         train_transforms = transforms.Compose([
-                   transforms.Resize((256*4, 256*4), Image.ANTIALIAS),
+                   transforms.Resize((256*4, 256*4), Image.LANCZOS),
         ])
 
         test_transforms = transforms.Compose([
-                   transforms.Resize((256*4, 256*4), Image.ANTIALIAS),
+                   transforms.Resize((256*4, 256*4), Image.LANCZOS),
                    transforms.ToTensor()
         ])
         
@@ -104,10 +105,10 @@ def train(model, device, args):
 
     if args.category == 'dbt':
         train_transforms = transforms.Compose([
-                   transforms.Resize((256*4, 256*3), Image.ANTIALIAS),])
+                   transforms.Resize((256*4, 256*3), Image.LANCZOS),])
 
         test_transforms = transforms.Compose([
-                   transforms.Resize((256*4, 256*3), Image.ANTIALIAS),
+                   transforms.Resize((256*4, 256*3), Image.LANCZOS),
                    transforms.ToTensor()])
         
         train_patch_d = DBTDataset(root = args.dataset_path, 
@@ -140,8 +141,22 @@ def train(model, device, args):
     # Optimizer
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=1e-5)
 
+    # Create a subset of training data for evaluation to speed up CPU processing
+    # Using 10% of training data for the memory bank
+    print('[INFO] Creating subset of training data for faster evaluation on CPU...')
+    indices = torch.randperm(len(train_full_d))[:int(len(train_full_d)*0.1)]
+    train_eval_d = torch.utils.data.Subset(train_full_d, indices)
+    train_eval_loader = DataLoader(train_eval_d, batch_size=args.batch_size, shuffle=False, drop_last=False)
+
     best_score = -1
-    score = evaluate_image(args, model, train_loader, test_loader, device, category=args.category)
+    # Skip initial evaluation to start training immediately
+    # print('\n' + '='*60)
+    # print('[INFO] Starting initial evaluation before training...')
+    # print('='*60)
+    # score = evaluate_image(args, model, train_eval_loader, test_loader, device, category=args.category)
+    # print(f'[INFO] Initial score: {score:.4f}')
+    # print('='*60 + '\n')
+    
     for epoch in range(args.epochs):
         with tqdm(total=len(train_patch_d), desc=f'Epoch {epoch + 1} / {args.epochs}', unit='img') as pbar:
             for idx, data in enumerate(train_patch_loader):
@@ -170,7 +185,8 @@ def train(model, device, args):
         # Evaluate
         if epoch > 0 and epoch % 10 == 0:
             twin_loss(f_patch, f_aug, f_neg=f_patch2, target=sim, p=1)
-            score = evaluate_image(args, model, train_loader, test_loader, device, category=args.category)
+            # Use the smaller train_eval_loader for evaluation
+            score = evaluate_image(args, model, train_eval_loader, test_loader, device, category=args.category)
             if score > best_score:
                 torch.save(model.state_dict(), 'checkpoints/%s_%s_%s.pth' % (args.category, epoch, str(score)))
                 best_score = score
@@ -196,7 +212,7 @@ def get_args():
     parser.add_argument('--learning-rate-biases', default=0.0048, type=float, metavar='LR',
                         help='base learning rate for biases and batch norm parameters')
     parser.add_argument('--weight_decay', type=float, default=1e-6)
-    parser.add_argument('--epochs', type=int, default=10000)
+    parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--patch_size', type=int, default=128)
     parser.add_argument('--step_size', type=int, default=32)
     parser.add_argument('--use_tumor', type=int, default=0)

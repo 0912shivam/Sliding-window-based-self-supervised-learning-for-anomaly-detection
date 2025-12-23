@@ -8,6 +8,7 @@ import cv2
 import json
 from sklearn.neighbors import KernelDensity
 import time
+from tqdm import tqdm
 
 def evaluate_image(args, model, train_loader, test_loader, device, category='dbt'):
     model.eval()
@@ -19,8 +20,9 @@ def evaluate_image(args, model, train_loader, test_loader, device, category='dbt
 
     patch_embeddings = None
 
+    print(f'\n[Evaluation] Extracting features from {len(train_loader)} training images...')
     with torch.no_grad():
-        for idx, data in enumerate(train_loader):
+        for idx, data in enumerate(tqdm(train_loader, desc='Extracting train features', unit='batch')):
             curr = time.time()
             # Fit img to size B * 3 * H * W
             img, _ = data
@@ -51,9 +53,7 @@ def evaluate_image(args, model, train_loader, test_loader, device, category='dbt
             else:
                 patch_embeddings = torch.cat([patch_embeddings, single_patch_embeddings], dim=0)
 
-            if idx % 10 == 0:
-                print('load feature %s/%s, instance time %s' % (str(idx), str(len(train_loader)), str(time.time() - curr)))
-    print('patch embedding size :', patch_embeddings.shape)
+    print(f'[Evaluation] Patch embedding size: {patch_embeddings.shape}')
     _, patch_dim, patch_num = patch_embeddings.shape
 
     # Testing
@@ -62,8 +62,9 @@ def evaluate_image(args, model, train_loader, test_loader, device, category='dbt
     score_patch_list = []
     
     patch_embeddings = patch_embeddings.numpy()
+    print(f'[Evaluation] Testing on {len(test_loader)} images...')
     with torch.no_grad():
-        for idx, data in enumerate(test_loader):
+        for idx, data in enumerate(tqdm(test_loader, desc='Testing', unit='img')):
             curr = time.time()
             img, label = data
 
@@ -81,29 +82,52 @@ def evaluate_image(args, model, train_loader, test_loader, device, category='dbt
                     else:
                         embedding_tests = torch.cat([embedding_tests, feature], dim=-1)
             
-            if idx % 50 == 0:
-                print('Extraction', time.time() - curr)
+
 
             # hidden * size
             embedding_tests = embedding_tests.squeeze().cpu()
             embedding_tests = embedding_tests.reshape(hidden_size, -1).numpy()
             
-            # Compute distance
-            dis_all = np.linalg.norm(patch_embeddings - embedding_tests, axis=-1)
-            score_patches = np.min(dis_all, axis=0)
+            # Compute distance with double batching to avoid memory issues
+            # Process both train and test patches in small chunks
+            num_test_patches = embedding_tests.shape[1]
+            num_train_patches = patch_embeddings.shape[0]
+            test_chunk_size = 20  # Process 20 test patches at a time
+            train_chunk_size = 100  # Process 100 train patches at a time
+            score_patches = []
+            
+            for test_start in range(0, num_test_patches, test_chunk_size):
+                test_end = min(test_start + test_chunk_size, num_test_patches)
+                test_chunk = embedding_tests[:, test_start:test_end]  # Shape: (2048, 20)
+                
+                min_distances = []
+                for train_start in range(0, num_train_patches, train_chunk_size):
+                    train_end = min(train_start + train_chunk_size, num_train_patches)
+                    train_chunk = patch_embeddings[train_start:train_end, :, 0]  # Shape: (100, 2048)
+                    
+                    # Compute distances between train_chunk and test_chunk
+                    # train_chunk: (100, 2048), test_chunk: (2048, 20)
+                    dis = np.linalg.norm(
+                        train_chunk[:, :, np.newaxis] - test_chunk[np.newaxis, :, :],
+                        axis=1
+                    )  # Shape: (100, 20)
+                    min_distances.append(np.min(dis, axis=0))  # Min over train patches
+                
+                # Get overall minimum distance for this test chunk
+                min_dist_chunk = np.min(np.array(min_distances), axis=0)
+                score_patches.extend(min_dist_chunk.tolist())
+            
+            score_patches = np.array(score_patches)
             image_score = max(score_patches)
 
             pred_list_img_lvl.append(float(image_score))
             gt_list_img_lvl.append(label.numpy()[0])
             score_patch_list.append(score_patches.tolist())
 
-            if idx % 50 == 0:
-                print('evaluate %s/%s, instance time %s' % (str(idx), str(len(test_loader)), str(time.time() - curr)))
-            
         pred_img_np = np.array(pred_list_img_lvl)
         gt_img_np = np.array(gt_list_img_lvl)
         img_auc = roc_auc_score(gt_img_np, pred_img_np)
-        print("image-level auc-roc score : %f" % img_auc)
+        print(f'\n[Evaluation Complete] Image-level AUC-ROC: {img_auc:.4f}')
 
         file_name = 'results/performance_%s_%s.json' % (category, str(img_auc))
         with open(file_name, 'w+') as f:

@@ -1,1 +1,24 @@
+# Python virtual environment
+venv/
+env/
+ENV/
+
+# PyTorch checkpoints
 checkpoints/*
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Results and logs
+results/*.json
+*.log
+
+# OS specific
+.DS_Store
+Thumbs.db

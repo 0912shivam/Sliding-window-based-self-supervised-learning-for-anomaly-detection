@@ -125,12 +125,12 @@ class ChestDataset(Dataset):
             self.to_im = transforms.ToTensor()
         
         # Normal Images Info
-        self.normal_path = os.path.join(root, self.phase, '0.normal')
+        self.normal_path = os.path.join(root, self.phase, 'NORMAL')
         self.normal_images = [f for f in os.listdir(self.normal_path)]
 
         # Tumor Images Info
         if phase != 'train':
-            self.tumor_path = os.path.join(root, self.phase, '1.abnormal')
+            self.tumor_path = os.path.join(root, self.phase, 'PNEUMONIA')
             self.tumor_images = [f for f in os.listdir(self.tumor_path)]
 
         print('%s dataset size %s' % (phase, len(self)))
