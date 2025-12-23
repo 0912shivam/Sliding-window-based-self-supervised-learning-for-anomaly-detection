@@ -1,4 +1,5 @@
 # Full: 89.08 
+# Minor update / refactor
 # Random Sample:89.79
 # Remove CD: 84.57
 # Remove flip: 81.02
