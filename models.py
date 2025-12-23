@@ -1,4 +1,5 @@
 import torch
+# Minor update / refactor
 import torch.nn as nn
 from torch.nn import functional as F
 import torchvision.models as models
